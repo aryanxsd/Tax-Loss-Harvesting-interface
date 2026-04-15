@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tax Loss Harvesting</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='tax-loss-harvesting.css') }}">
+</head>
+<body>
+  <div id="root"></div>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useEffect, useMemo, useState } = React;
+
+    const NOTE_ITEMS = [
+      "Tax-loss harvesting is currently not allowed under Indian tax regulations. Please consult your tax advisor before making any decisions.",
+      "Tax harvesting does not apply to derivatives or futures. These are handled separately as business income under tax rules.",
+      "Price and market value data is fetched from CoinGecko, not from individual exchanges. As a result, values may slightly differ from the ones on your exchange.",
+      "Some countries do not have a short-term / long-term bifurcation. For now, we are calculating everything as long-term.",
+      "Only realized losses are considered for harvesting. Unrealized losses in held assets are not counted."
+    ];
+
+    const currency = new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 2
+    });
+
+    function formatCurrency(value, options = {}) {
+      const amount = Math.abs(Number(value) || 0);
+      const rendered = currency.format(amount);
+      if (options.accounting) {
+        return `${value < 0 ? "-" : ""}${rendered}`;
+      }
+      return rendered;
+    }
+
+    function formatTokenAmount(value) {
+      const amount = Number(value) || 0;
+      if (amount === 0) return "0";
+      if (Math.abs(amount) >= 1000) {
+        return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(amount);
+      }
+      if (Math.abs(amount) >= 1) {
+        return amount.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+      }
+      return amount.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+    }
+
+    function formatSignedGain(value) {
+      const amount = Number(value) || 0;
+      const rendered = formatCurrency(amount);
+      return `${amount > 0 ? "+" : amount < 0 ? "-" : ""}${rendered}`;
+    }
+
+    function buildHarvestedCapitalGains(baseCapitalGains, selectedHoldings) {
+      if (!baseCapitalGains) return null;
+
+      const result = {
+        stcg: {
+          profits: Number(baseCapitalGains.stcg.profits),
+          losses: Number(baseCapitalGains.stcg.losses)
+        },
+        ltcg: {
+          profits: Number(baseCapitalGains.ltcg.profits),
+          losses: Number(baseCapitalGains.ltcg.losses)
+        }
+      };
+
+      selectedHoldings.forEach((holding) => {
+        [["stcg", holding.stcg], ["ltcg", holding.ltcg]].forEach(([bucket, taxLot]) => {
+          const gain = Number(taxLot?.gain || 0);
+          if (gain > 0) {
+            result[bucket].profits += gain;
+          } else if (gain < 0) {
+            result[bucket].losses += Math.abs(gain);
+          }
+        });
+      });
+
+      return result;
+    }
+
+    function summarizeCapitalGains(capitalGains) {
+      const shortNet = capitalGains.stcg.profits - capitalGains.stcg.losses;
+      const longNet = capitalGains.ltcg.profits - capitalGains.ltcg.losses;
+      return {
+        shortNet,
+        longNet,
+        realized: shortNet + longNet
+      };
+    }
+
+    function StatCard({ title, theme, capitalGains, effectiveLabel, savings }) {
+      const summary = summarizeCapitalGains(capitalGains);
+
+      return (
+        <section className={`summary-card ${theme}`}>
+          <div className="summary-title">{title}</div>
+          <div className="summary-grid summary-header">
+            <span></span>
+            <span>Short-term</span>
+            <span>Long-term</span>
+          </div>
+          <div className="summary-grid">
+            <span>Profits</span>
+            <span>{formatCurrency(capitalGains.stcg.profits)}</span>
+            <span>{formatCurrency(capitalGains.ltcg.profits)}</span>
+          </div>
+          <div className="summary-grid">
+            <span>Losses</span>
+            <span>{`-${formatCurrency(capitalGains.stcg.losses)}`}</span>
+            <span>{`-${formatCurrency(capitalGains.ltcg.losses)}`}</span>
+          </div>
+          <div className="summary-grid emphasis">
+            <span>Net Capital Gains</span>
+            <span>{formatCurrency(summary.shortNet, { accounting: true })}</span>
+            <span>{formatCurrency(summary.longNet, { accounting: true })}</span>
+          </div>
+          <div className="realized-row">
+            <span>{effectiveLabel}</span>
+            <strong>{formatCurrency(summary.realized, { accounting: true })}</strong>
+          </div>
+          {savings > 0 ? (
+            <div className="savings-note">
+              <span className="savings-icon">⚡</span>
+              <span>{`You are going to save up to ${formatCurrency(savings)}`}</span>
+            </div>
+          ) : null}
+        </section>
+      );
+    }
+
+    function HoldingRow({ holding, checked, onToggle }) {
+      const shortPositive = Number(holding.stcg.gain) >= 0;
+      const longPositive = Number(holding.ltcg.gain) >= 0;
+
+      return (
+        <tr className={checked ? "selected" : ""}>
+          <td>
+            <label className="checkbox-wrap">
+              <input type="checkbox" checked={checked} onChange={() => onToggle(holding.id)} />
+              <span className="checkbox-box"></span>
+            </label>
+          </td>
+          <td>
+            <div className="asset-cell">
+              <img src={holding.logo} alt={`${holding.coin} logo`} className="asset-logo" />
+              <div>
+                <div className="asset-symbol">{holding.coin}</div>
+                <div className="asset-name">{holding.coinName}</div>
+              </div>
+            </div>
+          </td>
+          <td>
+            <div className="metric-cell">
+              <strong>{`${formatTokenAmount(holding.totalHolding)} ${holding.coin}`}</strong>
+              <span>{formatCurrency(holding.averageBuyPrice)}</span>
+            </div>
+          </td>
+          <td>{formatCurrency(holding.currentPrice)}</td>
+          <td>
+            <div className={`gain-cell ${shortPositive ? "positive" : "negative"}`}>
+              <strong>{formatSignedGain(holding.stcg.gain)}</strong>
+              <span>{`${formatTokenAmount(holding.stcg.balance)} ${holding.coin}`}</span>
+            </div>
+          </td>
+          <td>
+            <div className={`gain-cell ${longPositive ? "positive" : "negative"}`}>
+              <strong>{formatSignedGain(holding.ltcg.gain)}</strong>
+              <span>{`${formatTokenAmount(holding.ltcg.balance)} ${holding.coin}`}</span>
+            </div>
+          </td>
+          <td className="amount-to-sell">
+            {checked ? `${formatTokenAmount(holding.totalHolding)} ${holding.coin}` : "-"}
+          </td>
+        </tr>
+      );
+    }
+
+    function App() {
+      const [holdings, setHoldings] = useState([]);
+      const [capitalGains, setCapitalGains] = useState(null);
+      const [selectedIds, setSelectedIds] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState("");
+      const [expanded, setExpanded] = useState(true);
+      const [showAll, setShowAll] = useState(false);
+
+      useEffect(() => {
+        let active = true;
+
+        async function loadData() {
+          setLoading(true);
+          setError("");
+
+          try {
+            const [holdingsResponse, gainsResponse] = await Promise.all([
+              fetch("/api/tax-loss/holdings"),
+              fetch("/api/tax-loss/capital-gains")
+            ]);
+
+            if (!holdingsResponse.ok || !gainsResponse.ok) {
+              throw new Error("Unable to load tax harvesting data.");
+            }
+
+            const holdingsData = await holdingsResponse.json();
+            const gainsData = await gainsResponse.json();
+
+            if (!active) return;
+
+            const enriched = holdingsData
+              .map((holding, index) => ({ ...holding, id: `${holding.coin}-${index}` }))
+              .sort((left, right) => {
+                const leftLoss = Math.min(left.stcg.gain, 0) + Math.min(left.ltcg.gain, 0);
+                const rightLoss = Math.min(right.stcg.gain, 0) + Math.min(right.ltcg.gain, 0);
+                if (leftLoss !== rightLoss) {
+                  return leftLoss - rightLoss;
+                }
+                return (right.currentPrice * right.totalHolding) - (left.currentPrice * left.totalHolding);
+              });
+
+            setHoldings(enriched);
+            setCapitalGains(gainsData.capitalGains);
+          } catch (loadError) {
+            if (!active) return;
+            setError(loadError.message || "Something went wrong while loading the tool.");
+          } finally {
+            if (active) {
+              setLoading(false);
+            }
+          }
+        }
+
+        loadData();
+        return () => {
+          active = false;
+        };
+      }, []);
+
+      const visibleHoldings = useMemo(() => {
+        return showAll ? holdings : holdings.slice(0, 8);
+      }, [holdings, showAll]);
+
+      const selectedHoldings = useMemo(() => {
+        const selectedSet = new Set(selectedIds);
+        return holdings.filter((holding) => selectedSet.has(holding.id));
+      }, [holdings, selectedIds]);
+
+      const summaryMetrics = useMemo(() => {
+        const positions = holdings.length;
+        const selected = selectedIds.length;
+        const harvestedLossLots = selectedHoldings.filter(
+          (holding) => Number(holding.stcg.gain) < 0 || Number(holding.ltcg.gain) < 0
+        ).length;
+
+        return {
+          positions,
+          selected,
+          harvestedLossLots
+        };
+      }, [holdings, selectedHoldings, selectedIds]);
+
+      const afterHarvesting = useMemo(() => {
+        return buildHarvestedCapitalGains(capitalGains, selectedHoldings);
+      }, [capitalGains, selectedHoldings]);
+
+      const savings = useMemo(() => {
+        if (!capitalGains || !afterHarvesting) return 0;
+        const beforeRealized = summarizeCapitalGains(capitalGains).realized;
+        const afterRealized = summarizeCapitalGains(afterHarvesting).realized;
+        return Math.max(beforeRealized - afterRealized, 0);
+      }, [capitalGains, afterHarvesting]);
+
+      const allSelected = holdings.length > 0 && holdings.every((holding) => selectedIds.includes(holding.id));
+
+      function toggleHolding(id) {
+        setSelectedIds((current) => (
+          current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+        ));
+      }
+
+      function toggleAllHoldings() {
+        if (allSelected) {
+          setSelectedIds([]);
+          return;
+        }
+
+        setSelectedIds(holdings.map((holding) => holding.id));
+      }
+
+      if (loading) {
+        return (
+          <div className="tlh-page centered-state">
+            <div className="loading-card">
+              <div className="spinner"></div>
+              <p>Loading tax loss harvesting data...</p>
+            </div>
+          </div>
+        );
+      }
+
+      if (error || !capitalGains) {
+        return (
+          <div className="tlh-page centered-state">
+            <div className="error-card">
+              <h1>Unable to load the tool</h1>
+              <p>{error || "The tax loss harvesting data is currently unavailable."}</p>
+              <button type="button" onClick={() => window.location.reload()}>Retry</button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="tlh-page">
+          <div className="tlh-shell">
+            <header className="tlh-header">
+              <a href="/" className="brand-lockup" aria-label="Go to home">
+                <span className="brand-text">Koin<span>X</span></span>
+              </a>
+            </header>
+
+            <section className="intro-row">
+              <div className="intro-copy">
+                <h1>Tax Harvesting</h1>
+                <p className="intro-text">
+                  Review unrealised gains and losses across your crypto positions and simulate how harvesting impacts your net capital gains.
+                </p>
+                <a className="works-link" href="https://www.incometax.gov.in/iec/foportal/" target="_blank" rel="noreferrer">
+                  How it works?
+                </a>
+              </div>
+            </section>
+
+            <section className="quick-stats">
+              <div className="quick-stat">
+                <span className="quick-stat-label">Total Holdings</span>
+                <strong>{summaryMetrics.positions}</strong>
+              </div>
+              <div className="quick-stat">
+                <span className="quick-stat-label">Selected Assets</span>
+                <strong>{summaryMetrics.selected}</strong>
+              </div>
+              <div className="quick-stat">
+                <span className="quick-stat-label">Loss Lots Chosen</span>
+                <strong>{summaryMetrics.harvestedLossLots}</strong>
+              </div>
+            </section>
+
+            <section className={`notes-card ${expanded ? "open" : ""}`}>
+              <button type="button" className="notes-toggle" onClick={() => setExpanded((state) => !state)}>
+                <span className="notes-title">
+                  <span className="info-badge">i</span>
+                  Important Notes &amp; Disclaimers
+                </span>
+                <span className="chevron">{expanded ? "⌃" : "⌄"}</span>
+              </button>
+
+              {expanded ? (
+                <ul className="notes-list">
+                  {NOTE_ITEMS.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              ) : null}
+            </section>
+
+            <section className="cards-grid">
+              <StatCard
+                title="Pre Harvesting"
+                theme="pre"
+                capitalGains={capitalGains}
+                effectiveLabel="Realised Capital Gains:"
+                savings={0}
+              />
+
+              <StatCard
+                title="After Harvesting"
+                theme="post"
+                capitalGains={afterHarvesting}
+                effectiveLabel="Effective Capital Gains:"
+                savings={savings}
+              />
+            </section>
+
+            <section className="table-card">
+              <div className="table-header">
+                <h2>Holdings</h2>
+                <div className="selection-summary">
+                  {selectedIds.length > 0 ? `${selectedIds.length} selected` : "Select assets to simulate harvesting"}
+                </div>
+              </div>
+
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>
+                        <label className="checkbox-wrap">
+                          <input type="checkbox" checked={allSelected} onChange={toggleAllHoldings} />
+                          <span className="checkbox-box"></span>
+                        </label>
+                      </th>
+                      <th>Asset</th>
+                      <th>Holdings<br /><span>Avg Buy Price</span></th>
+                      <th>Current Price</th>
+                      <th>Short-Term Gain</th>
+                      <th>Long-Term Gain</th>
+                      <th>Amount to Sell</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleHoldings.length > 0 ? (
+                      visibleHoldings.map((holding) => (
+                        <HoldingRow
+                          key={holding.id}
+                          holding={holding}
+                          checked={selectedIds.includes(holding.id)}
+                          onToggle={toggleHolding}
+                        />
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="7" className="empty-state">
+                          No holdings available right now.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {holdings.length > 8 ? (
+                <button type="button" className="view-all" onClick={() => setShowAll((current) => !current)}>
+                  {showAll ? "Show less" : "View all"}
+                </button>
+              ) : null}
+            </section>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

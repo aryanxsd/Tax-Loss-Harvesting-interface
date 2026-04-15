@@ -1,0 +1,16 @@
+{
+  "name": "koinx-tax-loss-harvesting",
+  "version": "1.0.0",
+  "description": "Responsive React-based tax loss harvesting interface for the KoinX frontend assignment. The project is packaged as a small standalone Flask app with two mocked APIs and a React UI rendered in-browser.",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "screenshots": "node scripts/capture_screenshots.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "playwright": "^1.59.1"
+  }
+}
