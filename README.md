@@ -104,14 +104,15 @@ npm run screenshots
 
 ## Screenshots
 
-Add screenshots in the [screenshots](/mnt/c/Users/aryan/OneDrive/Documents/koinx-tax-loss-harvesting/screenshots) folder after running the app locally, then reference them here.
+Screenshots are stored in the [screenshots](/mnt/c/Users/aryan/OneDrive/Documents/koinx-tax-loss-harvesting/screenshots) folder.
 
-Example:
+### Desktop
 
-```md
-![Desktop](./screenshots/desktop.png)
-![Mobile](./screenshots/mobile.png)
-```
+![Desktop UI](./screenshots/image.png)
+
+### Mobile
+
+![Mobile UI](./screenshots/image-1.png)
 
 ## Deployment
 
