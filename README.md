@@ -118,9 +118,9 @@ Screenshots are stored in the [screenshots](/mnt/c/Users/aryan/OneDrive/Document
 
 The project is ready to deploy on Vercel using the included Python configuration.
 
-Suggested deployed URL:
+Live deployed URL:
 
-- `https://<your-domain>/tax-loss-harvesting`
+- `https://tax-loss-harvesting-interface-ecru.vercel.app/tax-loss-harvesting`
 
 ## Verification
 
